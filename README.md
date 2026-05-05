@@ -2,7 +2,7 @@
 
 A conversational CLI agent (in the spirit of Cursor / Windsurf) that takes a natural-language instruction in your terminal, reasons step-by-step, and produces a working local clone of the Scaler Academy website using HTML, CSS, and vanilla JavaScript.
 
-> Status: **Phase 4 — Scaler design brief baked in**. Self-review loop and demo polish land in subsequent phases.
+> Status: **End-to-end Scaler clone produced**. The agent walks the full workflow (fetch → think → batch write → self-review → open in browser), and the output site renders cleanly in `output/scaler-clone/`.
 
 ## How it works
 
@@ -87,6 +87,20 @@ npm run smoke
 npm run selfcheck
 ```
 
+## Generated example
+
+A finished Scaler clone produced by the agent lives in [`output/scaler-clone/`](output/scaler-clone/). To regenerate from scratch:
+
+```bash
+npm start
+```
+
+…then paste:
+
+> Clone the Scaler Academy website at https://www.scaler.com into ./output/scaler-clone, following the SCALER ACADEMY CLONE TASK BRIEF in your system prompt exactly. Required sections: Header, Hero, Footer.
+
+The agent will fetch the live page, decompose into folder + writeFiles + readFile self-review, and open the result in your default browser. Multi-turn follow-ups like *"now make the hero darker"* work because conversation history persists across turns.
+
 ## Project layout
 
 ```
@@ -109,7 +123,7 @@ output/              Generated site lands here (gitignored)
 - **Phase 2** — Conversational REPL (readline + multi-turn history + slash commands) ✅
 - **Phase 3** — File-system tool hardening (workspace-root path safety + `pathExists` + `writeFiles` batch) ✅
 - **Phase 4** — Scaler design brief baked into system prompt (workflow, design tokens, section specs, code constraints) ✅
-- **Phase 5** — Agent loop hardening (forced decomposition + self-review)
+- **Phase 5** — Agent loop hardening (rate-limit retry + multi-key rotation + structured fetch) and end-to-end clone test ✅
 - **Phase 6** — Polish, README, demo video
 
 ## License
