@@ -33,41 +33,58 @@ const tool_map = {
 
 const MAX_ITERATIONS = 80;
 
-function buildClient() {
+function buildClientConfig() {
   const provider = (process.env.LLM_PROVIDER || "groq").toLowerCase();
   if (provider === "groq") {
-    const apiKey = process.env.GROQ_API_KEY;
-    if (!apiKey) {
+    const single = process.env.GROQ_API_KEY?.trim();
+    const multi = (process.env.GROQ_API_KEYS || "")
+      .split(",")
+      .map((k) => k.trim())
+      .filter(Boolean);
+    const keys = [...new Set([single, ...multi].filter(Boolean))];
+    if (keys.length === 0) {
       throw new Error(
-        "GROQ_API_KEY is not set. Copy .env.example to .env and fill it in. " +
+        "No Groq API key configured. Set GROQ_API_KEY (or GROQ_API_KEYS) in .env. " +
           "Get a free key at https://console.groq.com/keys"
       );
     }
     return {
-      client: new OpenAI({
-        apiKey,
-        baseURL: "https://api.groq.com/openai/v1",
-      }),
+      keys,
       model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
       provider: "groq",
+      baseURL: "https://api.groq.com/openai/v1",
     };
   }
   if (provider === "openai") {
-    const apiKey = process.env.OPENAI_API_KEY;
+    const apiKey = process.env.OPENAI_API_KEY?.trim();
     if (!apiKey) {
       throw new Error(
         "OPENAI_API_KEY is not set. Copy .env.example to .env and fill it in."
       );
     }
     return {
-      client: new OpenAI({ apiKey }),
+      keys: [apiKey],
       model: process.env.OPENAI_MODEL || "gpt-4o-mini",
       provider: "openai",
+      baseURL: undefined,
     };
   }
   throw new Error(
     `Unknown LLM_PROVIDER="${provider}". Use "groq" or "openai".`
   );
+}
+
+function parseWaitSeconds(msg, fallback) {
+  const s = msg.match(/try again in\s+([\d.]+)\s*s\b/i);
+  if (s) return Math.ceil(parseFloat(s[1])) + 1;
+  const hms = msg.match(/try again in\s+(?:(\d+)h)?(?:(\d+)m)?(?:([\d.]+)s)?/i);
+  if (hms && (hms[1] || hms[2] || hms[3])) {
+    const h = parseInt(hms[1] || "0");
+    const m = parseInt(hms[2] || "0");
+    const sec = Math.ceil(parseFloat(hms[3] || "0"));
+    return h * 3600 + m * 60 + sec;
+  }
+  return fallback;
 }
 
 function truncate(s, n = 220) {
@@ -103,9 +120,15 @@ function printStep(parsed) {
 }
 
 export async function runAgent(userMessage, history = []) {
-  const { client, model, provider } = buildClient();
+  const { keys, model, provider, baseURL } = buildClientConfig();
+  let keyIdx = 0;
+  const exhausted = new Set();
+  const makeClient = () =>
+    new OpenAI({ apiKey: keys[keyIdx], ...(baseURL ? { baseURL } : {}) });
+  let client = makeClient();
   if (history.length === 0) {
-    console.log(chalk.gray(`(provider: ${provider}, model: ${model})`));
+    const keyInfo = keys.length > 1 ? `, ${keys.length} keys` : "";
+    console.log(chalk.gray(`(provider: ${provider}, model: ${model}${keyInfo})`));
   }
 
   const messages =
@@ -131,21 +154,39 @@ export async function runAgent(userMessage, history = []) {
       } catch (err) {
         const status = err?.status || err?.response?.status;
         const msg = err?.message || String(err);
+        const isTpd = /tokens per day/i.test(msg);
         const isRateLimit =
           status === 429 ||
           status === 413 ||
           /rate.?limit/i.test(msg) ||
           /tokens per (minute|hour|day)/i.test(msg) ||
           /Request too large/i.test(msg);
+
+        if (isTpd) {
+          exhausted.add(keyIdx);
+          const nextIdx = keys.findIndex((_, idx) => !exhausted.has(idx));
+          if (nextIdx >= 0 && nextIdx !== keyIdx) {
+            console.log(
+              chalk.yellow(
+                `[KEYROTATE] daily quota exhausted on key ${keyIdx + 1}/${keys.length}, switching to key ${nextIdx + 1}/${keys.length}`
+              )
+            );
+            keyIdx = nextIdx;
+            client = makeClient();
+            attempt = 0;
+            continue;
+          }
+        }
+
         if (!isRateLimit || attempt >= 3) {
           console.log(chalk.red("[API ERROR]"), msg);
           return { history: messages, output: null, error: msg };
         }
-        const waitMatch = msg.match(/try again in ([\d.]+)\s*s/i);
-        const waitSec = waitMatch ? Math.min(75, Math.ceil(parseFloat(waitMatch[1])) + 1) : 35 * (attempt + 1);
+
+        const waitSec = Math.min(75, parseWaitSeconds(msg, 35 * (attempt + 1)));
         console.log(
           chalk.yellow(
-            `[RATELIMIT] ${status || "?"} — waiting ${waitSec}s (attempt ${attempt + 1}/3)`
+            `[RATELIMIT] ${status || "?"} — waiting ${waitSec}s (attempt ${attempt + 1}/3, key ${keyIdx + 1}/${keys.length})`
           )
         );
         await new Promise((r) => setTimeout(r, waitSec * 1000));

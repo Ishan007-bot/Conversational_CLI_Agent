@@ -46,6 +46,18 @@ Then open `.env` and add **one** provider's API key:
 
 The agent uses the OpenAI SDK against either provider's chat-completions endpoint, so the rest of the code is provider-agnostic.
 
+### Multi-key rotation (Groq free tier)
+
+Each Groq account has its own 100K-tokens-per-day budget on the free tier. To extend that, set `GROQ_API_KEYS` to a comma-separated list:
+
+```
+GROQ_API_KEYS=gsk_first,gsk_second,gsk_third
+```
+
+When the agent hits a `tokens per day` error on the active key, it rotates to the next key automatically and retries the same request — no run is lost. You'll see a `[KEYROTATE 1→2/3]` log line. Per-minute rate limits still trigger a wait-and-retry on the same key (they reset within ~60 seconds, so rotating doesn't help).
+
+`GROQ_API_KEY` and `GROQ_API_KEYS` are merged and deduped, so you can set either or both.
+
 ## Run
 
 ```bash
