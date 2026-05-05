@@ -1,4 +1,4 @@
-# Scaler Clone CLI Agent
+# Conversational CLI Agent
 
 A conversational CLI agent — in the spirit of Cursor / Windsurf — that takes natural-language instructions in your terminal, reasons step-by-step through a tool-using loop, and produces real local output files. The default task it is tuned for is cloning the Scaler Academy website into a working static page (`index.html` + `style.css` + `script.js`) that opens in your browser.
 
