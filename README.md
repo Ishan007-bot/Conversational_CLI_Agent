@@ -2,7 +2,7 @@
 
 A conversational CLI agent (in the spirit of Cursor / Windsurf) that takes a natural-language instruction in your terminal, reasons step-by-step, and produces a working local clone of the Scaler Academy website using HTML, CSS, and vanilla JavaScript.
 
-> Status: **Phase 3 — file-system tools hardened**. Scaler-specific design brief, self-review loop, and demo polish land in subsequent phases.
+> Status: **Phase 4 — Scaler design brief baked in**. Self-review loop and demo polish land in subsequent phases.
 
 ## How it works
 
@@ -96,7 +96,7 @@ output/              Generated site lands here (gitignored)
 - **Phase 1** — Foundation, fixed tools, smoke test ✅
 - **Phase 2** — Conversational REPL (readline + multi-turn history + slash commands) ✅
 - **Phase 3** — File-system tool hardening (workspace-root path safety + `pathExists` + `writeFiles` batch) ✅
-- **Phase 4** — Scaler design brief baked into system prompt
+- **Phase 4** — Scaler design brief baked into system prompt (workflow, design tokens, section specs, code constraints) ✅
 - **Phase 5** — Agent loop hardening (forced decomposition + self-review)
 - **Phase 6** — Polish, README, demo video
 
