@@ -10,7 +10,16 @@ const DEFAULT_HEADERS = {
 
 const MAX_HTML_BYTES = 12_000;
 
-function extractStructured(html) {
+function absolutize(rawUrl, baseUrl) {
+  if (!rawUrl) return rawUrl;
+  try {
+    return new URL(rawUrl, baseUrl).toString();
+  } catch {
+    return rawUrl;
+  }
+}
+
+function extractStructured(html, baseUrl) {
   const pick = (re, group = 1) => {
     const m = html.match(re);
     return m ? m[group].replace(/\s+/g, " ").trim() : "";
@@ -20,6 +29,15 @@ function extractStructured(html) {
     let m;
     while ((m = re.exec(html)) && out.length < limit) {
       const v = m[group].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim();
+      if (v && !out.includes(v)) out.push(v);
+    }
+    return out;
+  };
+  const allAttr = (re, limit = 25) => {
+    const out = [];
+    let m;
+    while ((m = re.exec(html)) && out.length < limit) {
+      const v = m[1].trim();
       if (v && !out.includes(v)) out.push(v);
     }
     return out;
@@ -61,7 +79,40 @@ function extractStructured(html) {
     .filter((s, i, arr) => s && s.length < 60 && arr.indexOf(s) === i)
     .slice(0, 40);
 
-  return { title, description, ogTitle, h1, h2, h3, buttons, navLinks, footerLinks };
+  const imageUrls = allAttr(/<img[^>]+src=["']([^"']+)["']/gi, 12)
+    .map((u) => absolutize(u, baseUrl))
+    .filter((u) => !/^data:/i.test(u));
+  const stylesheetUrls = allAttr(
+    /<link[^>]+rel=["']stylesheet["'][^>]+href=["']([^"']+)["']/gi,
+    8
+  ).map((u) => absolutize(u, baseUrl));
+  const stylesheetUrlsAlt = allAttr(
+    /<link[^>]+href=["']([^"']+)["'][^>]+rel=["']stylesheet["']/gi,
+    8
+  ).map((u) => absolutize(u, baseUrl));
+  const allCss = [...new Set([...stylesheetUrls, ...stylesheetUrlsAlt])];
+
+  const colorSet = new Set();
+  const hexRe = /#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b/g;
+  const rgbRe = /rgba?\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*(?:,\s*[\d.]+\s*)?\)/g;
+  for (const m of html.matchAll(hexRe)) colorSet.add(m[0]);
+  for (const m of html.matchAll(rgbRe)) colorSet.add(m[0]);
+  const colors = [...colorSet].slice(0, 20);
+
+  return {
+    title,
+    description,
+    ogTitle,
+    h1,
+    h2,
+    h3,
+    buttons,
+    navLinks,
+    footerLinks,
+    imageUrls,
+    stylesheetUrls: allCss,
+    colors,
+  };
 }
 
 export async function fetchWebpage(arg) {
@@ -77,7 +128,7 @@ export async function fetchWebpage(arg) {
   });
 
   const raw = typeof data === "string" ? data : String(data ?? "");
-  const structured = extractStructured(raw);
+  const structured = extractStructured(raw, url);
 
   let stripped = raw
     .replace(/<script[\s\S]*?<\/script>/gi, "")
@@ -103,6 +154,9 @@ export async function fetchWebpage(arg) {
     `NAV_LINKS:    ${structured.navLinks.join(" | ") || "(none)"}`,
     `BUTTONS:      ${structured.buttons.join(" | ") || "(none)"}`,
     `FOOTER_LINKS: ${structured.footerLinks.join(" | ") || "(none)"}`,
+    `IMAGE_URLS:   ${structured.imageUrls.slice(0, 6).join(" | ") || "(none)"}`,
+    `STYLESHEETS:  ${structured.stylesheetUrls.slice(0, 6).join(" | ") || "(none)"}`,
+    `COLORS:       ${structured.colors.join(" ") || "(none)"}`,
     `<!-- raw (stripped) HTML below for reference -->`,
     stripped,
   ].join("\n");

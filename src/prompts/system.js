@@ -59,6 +59,16 @@ openInBrowser({path})
   - Opens a local file in the default browser. Cross-platform (Windows/macOS/Linux).
   - tool_args: {"path": "./output/scaler-clone/index.html"}
 
+validateGeneratedFiles({dir})
+  - Static-analyses a generated site directory. Returns JSON:
+    {"ok": bool, "problems": [...], "warnings": [...], "stats": {...}}.
+  - Checks: required files exist, semantic tags (header/main/section/footer),
+    hero <h1>, CTA buttons, responsive @media, CSS classes vs HTML usage,
+    and JS getElementById/querySelector references vs actual elements.
+  - Run AFTER writeFiles. If problems[] is non-empty, fix them with writeFile
+    before declaring OUTPUT.
+  - tool_args: {"dir": "./output/scaler-clone"}
+
 executeCommand(cmd)
   - Runs a shell command on the user's machine.
   - tool_args: plain command string, e.g. "node --version"
@@ -96,11 +106,15 @@ WORKFLOW (must follow in order, one TOOL call per turn):
         ./output/scaler-clone/index.html
         ./output/scaler-clone/style.css
         ./output/scaler-clone/script.js
- 5. readFile each generated file (one at a time) and THINK whether
-    it matches the brief. If a fix is needed, writeFile the corrected
-    version.
- 6. openInBrowser "./output/scaler-clone/index.html".
- 7. OUTPUT a short summary listing files written and key sections.
+ 5. validateGeneratedFiles {"dir": "./output/scaler-clone"} —
+    parses the JSON result. If problems[] is non-empty, fix the files
+    (one writeFile per fix) and re-validate. Repeat until ok:true.
+ 6. readFile each generated file (one at a time) and THINK whether
+    it visually matches the brief. If something feels off (e.g. hero
+    text colour on dark, missing eyebrow chip), writeFile the fix.
+ 7. openInBrowser "./output/scaler-clone/index.html".
+ 8. OUTPUT a short summary listing files written, problems caught
+    by the validator, and key sections.
 
 REQUIRED SECTIONS, in order: Header, Hero, Footer.
 Optional bonus sections (if time permits): Programs / Course cards,

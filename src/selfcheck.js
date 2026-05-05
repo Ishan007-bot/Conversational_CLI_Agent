@@ -9,6 +9,7 @@ import {
   openInBrowser,
   pathExists,
 } from "./tools/fs.js";
+import { validateGeneratedFiles } from "./tools/validate.js";
 import { executeCommand } from "./tools/shell.js";
 import {
   fetchWebpage,
@@ -39,6 +40,7 @@ const tools = {
   pathExists,
   openInBrowser,
   executeCommand,
+  validateGeneratedFiles,
   fetchWebpage,
   getTheWeatherOfCity,
   getGithubDetailsAboutUser,
@@ -93,6 +95,62 @@ try {
 } catch (e) {
   if (/escapes the workspace/.test(e.message)) ok("workspace escape correctly rejected");
   else fail("workspace escape threw wrong error", e);
+}
+
+try {
+  // Bad sample: missing semantic tags, lorem ipsum, broken JS reference, no @media
+  await writeFiles({
+    files: [
+      {
+        path: "./output/_selfcheck_bad/index.html",
+        content:
+          '<!doctype html><html><head><link rel="stylesheet" href="style.css"></head><body><div class="thing">Lorem ipsum dolor sit amet</div><script src="script.js" defer></script></body></html>',
+      },
+      {
+        path: "./output/_selfcheck_bad/style.css",
+        content: ".thing { color: red; }",
+      },
+      {
+        path: "./output/_selfcheck_bad/script.js",
+        content: "document.getElementById('does-not-exist').addEventListener('click', () => {});",
+      },
+    ],
+  });
+  const badRes = JSON.parse(await validateGeneratedFiles({ dir: "./output/_selfcheck_bad" }));
+  if (!badRes.ok && badRes.problems.length >= 4) ok(`validator caught ${badRes.problems.length} problems on bad sample`);
+  else fail("validator missed problems on bad sample", JSON.stringify(badRes));
+  if (badRes.problems.some((p) => /lorem ipsum/i.test(p))) ok("validator detects lorem ipsum");
+  else fail("validator missed lorem ipsum");
+  if (badRes.problems.some((p) => /does-not-exist/.test(p))) ok("validator detects JS ref to missing ID");
+  else fail("validator missed JS missing-ID reference");
+
+  // Good sample
+  await writeFiles({
+    files: [
+      {
+        path: "./output/_selfcheck_good/index.html",
+        content:
+          '<!doctype html><html><head><link rel="stylesheet" href="style.css"></head><body>' +
+          '<header><nav><a href="#">A</a></nav></header>' +
+          '<main><section class="hero"><h1>Hello</h1><button class="btn-primary">Apply</button></section></main>' +
+          '<footer><p>x</p></footer>' +
+          '<script src="script.js" defer></script></body></html>',
+      },
+      {
+        path: "./output/_selfcheck_good/style.css",
+        content: ":root { --p: red; } .hero { padding: clamp(40px, 5vw, 96px); } @media (max-width: 768px) { .hero { padding: 16px; } }",
+      },
+      {
+        path: "./output/_selfcheck_good/script.js",
+        content: "document.addEventListener('DOMContentLoaded', () => { document.querySelector('.btn-primary')?.addEventListener('click', () => {}); });",
+      },
+    ],
+  });
+  const goodRes = JSON.parse(await validateGeneratedFiles({ dir: "./output/_selfcheck_good" }));
+  if (goodRes.ok) ok("validator says good sample is OK");
+  else fail("validator wrongly rejected good sample", JSON.stringify(goodRes.problems));
+} catch (e) {
+  fail("validateGeneratedFiles threw", e);
 }
 
 try {

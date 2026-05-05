@@ -10,6 +10,7 @@ import {
   openInBrowser,
   pathExists,
 } from "./tools/fs.js";
+import { validateGeneratedFiles } from "./tools/validate.js";
 import { executeCommand } from "./tools/shell.js";
 import {
   fetchWebpage,
@@ -27,6 +28,7 @@ const tool_map = {
   pathExists,
   openInBrowser,
   executeCommand,
+  validateGeneratedFiles,
   getTheWeatherOfCity,
   getGithubDetailsAboutUser,
 };
@@ -69,8 +71,22 @@ function buildClientConfig() {
       baseURL: undefined,
     };
   }
+  if (provider === "openrouter") {
+    const apiKey = process.env.OPENROUTER_API_KEY?.trim();
+    if (!apiKey) {
+      throw new Error(
+        "OPENROUTER_API_KEY is not set. Get a free key at https://openrouter.ai/keys"
+      );
+    }
+    return {
+      keys: [apiKey],
+      model: process.env.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-instruct:free",
+      provider: "openrouter",
+      baseURL: "https://openrouter.ai/api/v1",
+    };
+  }
   throw new Error(
-    `Unknown LLM_PROVIDER="${provider}". Use "groq" or "openai".`
+    `Unknown LLM_PROVIDER="${provider}". Use "groq", "openai", or "openrouter".`
   );
 }
 

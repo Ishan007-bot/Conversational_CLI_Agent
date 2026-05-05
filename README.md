@@ -18,7 +18,7 @@ Every turn the model emits one JSON object. When it asks for a tool, the runtime
 
 | Tool | Purpose |
 | --- | --- |
-| `fetchWebpage(url)` | Fetch the raw HTML of a URL (with SPA `__NEXT_DATA__` extraction). |
+| `fetchWebpage(url)` | Fetch a URL and return a structured extract — title, meta description, headings, nav links, buttons, footer links, image URLs, stylesheet URLs, color palette — followed by a stripped HTML body. |
 | `writeFile({path, content})` | Create / overwrite a file, auto-creating parent dirs. |
 | `writeFiles({files: [...]})` | Batch-write several files in one tool call (token-efficient). |
 | `readFile({path})` | Read a file back (used for self-review). |
@@ -29,6 +29,7 @@ Every turn the model emits one JSON object. When it asks for a tool, the runtime
 
 All file-system tools resolve paths against the workspace root (project directory by default, override with `AGENT_WORKSPACE_ROOT`). Paths that try to escape (`../../etc/passwd`) are rejected at the tool boundary.
 | `executeCommand(cmd)` | Run a shell command. |
+| `validateGeneratedFiles({dir})` | Static-analyse a generated site directory. Returns JSON with `problems`, `warnings`, and `stats` covering required files, semantic tags, hero `<h1>`, CTA buttons, responsive `@media`, CSS-vs-HTML class consistency, and JS references to missing IDs/classes. The agent runs this after `writeFiles` and fixes whatever it finds. |
 | `getTheWeatherOfCity(city)` | Live weather demo tool. |
 | `getGithubDetailsAboutUser(user)` | Public GitHub profile demo tool. |
 
@@ -43,6 +44,7 @@ Then open `.env` and add **one** provider's API key:
 
 - **Groq (free, default)** — get a key at https://console.groq.com/keys, paste into `GROQ_API_KEY=`
 - **OpenAI (paid, optional)** — set `LLM_PROVIDER=openai` and add `OPENAI_API_KEY=sk-...`
+- **OpenRouter (free models available)** — set `LLM_PROVIDER=openrouter` and add `OPENROUTER_API_KEY=sk-or-...`. Defaults to `meta-llama/llama-3.3-70b-instruct:free`; set `OPENROUTER_MODEL` to switch to other free models like DeepSeek or Gemini Flash.
 
 The agent uses the OpenAI SDK against either provider's chat-completions endpoint, so the rest of the code is provider-agnostic.
 
