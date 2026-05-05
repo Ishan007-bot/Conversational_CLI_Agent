@@ -2,7 +2,7 @@
 
 A conversational CLI agent (in the spirit of Cursor / Windsurf) that takes a natural-language instruction in your terminal, reasons step-by-step, and produces a working local clone of the Scaler Academy website using HTML, CSS, and vanilla JavaScript.
 
-> Status: **Phase 1 — foundation complete**. Conversational REPL, Scaler-specific design brief, self-review loop, and demo polish land in subsequent phases.
+> Status: **Phase 2 — conversational REPL complete**. Scaler-specific design brief, self-review loop, and demo polish land in subsequent phases.
 
 ## How it works
 
@@ -45,11 +45,30 @@ The agent uses the OpenAI SDK against either provider's chat-completions endpoin
 ## Run
 
 ```bash
-# Phase 1 entry — single-shot
+# Conversational REPL (default)
 npm start
+```
 
-# Phase 1 smoke test (verifies API + tool wiring)
+You'll get a `you >` prompt. Type a request and the agent reasons through it step-by-step. Multi-turn history persists across prompts, so follow-ups like *"now make the hero darker"* work after an initial build.
+
+### Slash commands
+
+| Command | Effect |
+| --- | --- |
+| `/help` | Show the command reference |
+| `/clear` | Reset conversation history |
+| `/history` | Print how many messages are in history |
+| `/save <file>` | Write the conversation JSON to `<file>` |
+| `/exit` (or `/q`) | Leave the agent |
+
+### Other scripts
+
+```bash
+# Live API smoke test (verifies provider + tool wiring)
 npm run smoke
+
+# Offline structural self-check (no API key required)
+npm run selfcheck
 ```
 
 ## Project layout
@@ -71,7 +90,7 @@ output/              Generated site lands here (gitignored)
 ## Roadmap
 
 - **Phase 1** — Foundation, fixed tools, smoke test ✅
-- **Phase 2** — Conversational REPL (readline + multi-turn history)
+- **Phase 2** — Conversational REPL (readline + multi-turn history + slash commands) ✅
 - **Phase 3** — File-system tool hardening
 - **Phase 4** — Scaler design brief baked into system prompt
 - **Phase 5** — Agent loop hardening (forced decomposition + self-review)
