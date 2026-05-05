@@ -118,16 +118,39 @@ export async function runAgent(userMessage, history = []) {
 
   for (let i = 0; i < MAX_ITERATIONS; i++) {
     let response;
-    try {
-      response = await client.chat.completions.create({
-        model,
-        messages,
-        response_format: { type: "json_object" },
-        temperature: 0.2,
-      });
-    } catch (err) {
-      console.log(chalk.red("[API ERROR]"), err.message || err);
-      return { history: messages, output: null, error: err.message };
+    let attempt = 0;
+    while (true) {
+      try {
+        response = await client.chat.completions.create({
+          model,
+          messages,
+          response_format: { type: "json_object" },
+          temperature: 0.2,
+        });
+        break;
+      } catch (err) {
+        const status = err?.status || err?.response?.status;
+        const msg = err?.message || String(err);
+        const isRateLimit =
+          status === 429 ||
+          status === 413 ||
+          /rate.?limit/i.test(msg) ||
+          /tokens per (minute|hour|day)/i.test(msg) ||
+          /Request too large/i.test(msg);
+        if (!isRateLimit || attempt >= 3) {
+          console.log(chalk.red("[API ERROR]"), msg);
+          return { history: messages, output: null, error: msg };
+        }
+        const waitMatch = msg.match(/try again in ([\d.]+)\s*s/i);
+        const waitSec = waitMatch ? Math.min(75, Math.ceil(parseFloat(waitMatch[1])) + 1) : 35 * (attempt + 1);
+        console.log(
+          chalk.yellow(
+            `[RATELIMIT] ${status || "?"} — waiting ${waitSec}s (attempt ${attempt + 1}/3)`
+          )
+        );
+        await new Promise((r) => setTimeout(r, waitSec * 1000));
+        attempt++;
+      }
     }
 
     const raw = response.choices?.[0]?.message?.content ?? "";
