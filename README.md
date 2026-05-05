@@ -2,7 +2,7 @@
 
 A conversational CLI agent (in the spirit of Cursor / Windsurf) that takes a natural-language instruction in your terminal, reasons step-by-step, and produces a working local clone of the Scaler Academy website using HTML, CSS, and vanilla JavaScript.
 
-> Status: **Phase 2 — conversational REPL complete**. Scaler-specific design brief, self-review loop, and demo polish land in subsequent phases.
+> Status: **Phase 3 — file-system tools hardened**. Scaler-specific design brief, self-review loop, and demo polish land in subsequent phases.
 
 ## How it works
 
@@ -20,10 +20,14 @@ Every turn the model emits one JSON object. When it asks for a tool, the runtime
 | --- | --- |
 | `fetchWebpage(url)` | Fetch the raw HTML of a URL (with SPA `__NEXT_DATA__` extraction). |
 | `writeFile({path, content})` | Create / overwrite a file, auto-creating parent dirs. |
+| `writeFiles({files: [...]})` | Batch-write several files in one tool call (token-efficient). |
 | `readFile({path})` | Read a file back (used for self-review). |
 | `listFiles({dir})` | List directory entries. |
 | `createFolder({path})` | Recursive mkdir. |
+| `pathExists({path})` | Probe whether a file or directory exists. |
 | `openInBrowser({path})` | Open a local file in the default browser (Windows / macOS / Linux). |
+
+All file-system tools resolve paths against the workspace root (project directory by default, override with `AGENT_WORKSPACE_ROOT`). Paths that try to escape (`../../etc/passwd`) are rejected at the tool boundary.
 | `executeCommand(cmd)` | Run a shell command. |
 | `getTheWeatherOfCity(city)` | Live weather demo tool. |
 | `getGithubDetailsAboutUser(user)` | Public GitHub profile demo tool. |
@@ -91,7 +95,7 @@ output/              Generated site lands here (gitignored)
 
 - **Phase 1** — Foundation, fixed tools, smoke test ✅
 - **Phase 2** — Conversational REPL (readline + multi-turn history + slash commands) ✅
-- **Phase 3** — File-system tool hardening
+- **Phase 3** — File-system tool hardening (workspace-root path safety + `pathExists` + `writeFiles` batch) ✅
 - **Phase 4** — Scaler design brief baked into system prompt
 - **Phase 5** — Agent loop hardening (forced decomposition + self-review)
 - **Phase 6** — Polish, README, demo video

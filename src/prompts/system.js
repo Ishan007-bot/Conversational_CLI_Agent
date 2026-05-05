@@ -28,8 +28,15 @@ fetchWebpage(url)
   - tool_args: plain URL string, e.g. "https://www.scaler.com"
 
 writeFile({path, content})
-  - Creates or overwrites a file. Auto-creates parent directories.
+  - Creates or overwrites a single file. Auto-creates parent directories.
+  - All paths are resolved inside the workspace root; ".." escapes are rejected.
   - tool_args: {"path": "./output/index.html", "content": "<!doctype html>..."}
+
+writeFiles({files: [{path, content}, ...]})
+  - Batch write multiple files in one tool call. Use this when generating a
+    site from scratch (index.html + style.css + script.js) to save tokens.
+  - tool_args: {"files": [{"path": "./out/index.html", "content": "..."},
+                          {"path": "./out/style.css",  "content": "..."}]}
 
 readFile({path})
   - Reads a file and returns its contents.
@@ -42,6 +49,11 @@ listFiles({dir})
 createFolder({path})
   - Recursively creates a folder.
   - tool_args: {"path": "./output/scaler-clone"}
+
+pathExists({path})
+  - Returns JSON: {"exists": bool, "type": "file"|"directory", "size": n, "path": "..."}.
+  - Use before overwriting if you need to know whether a file already exists.
+  - tool_args: {"path": "./output/scaler-clone/index.html"}
 
 openInBrowser({path})
   - Opens a local file in the default browser. Cross-platform (Windows/macOS/Linux).

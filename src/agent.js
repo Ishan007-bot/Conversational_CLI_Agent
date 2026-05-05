@@ -3,10 +3,12 @@ import chalk from "chalk";
 import { SYSTEM_PROMPT } from "./prompts/system.js";
 import {
   writeFile,
+  writeFiles,
   readFile,
   listFiles,
   createFolder,
   openInBrowser,
+  pathExists,
 } from "./tools/fs.js";
 import { executeCommand } from "./tools/shell.js";
 import {
@@ -18,9 +20,11 @@ import {
 const tool_map = {
   fetchWebpage,
   writeFile,
+  writeFiles,
   readFile,
   listFiles,
   createFolder,
+  pathExists,
   openInBrowser,
   executeCommand,
   getTheWeatherOfCity,

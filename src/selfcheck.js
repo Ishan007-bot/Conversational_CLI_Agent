@@ -2,10 +2,12 @@
 import chalk from "chalk";
 import {
   writeFile,
+  writeFiles,
   readFile,
   listFiles,
   createFolder,
   openInBrowser,
+  pathExists,
 } from "./tools/fs.js";
 import { executeCommand } from "./tools/shell.js";
 import {
@@ -30,9 +32,11 @@ else fail("system prompt missing or too short");
 
 const tools = {
   writeFile,
+  writeFiles,
   readFile,
   listFiles,
   createFolder,
+  pathExists,
   openInBrowser,
   executeCommand,
   fetchWebpage,
@@ -55,6 +59,40 @@ try {
   else fail("listFiles missing new file", listing);
 } catch (e) {
   fail("fs roundtrip threw", e);
+}
+
+try {
+  const exists = JSON.parse(await pathExists({ path: "./output/_selfcheck/hello.txt" }));
+  if (exists.exists && exists.type === "file") ok("pathExists detects existing file");
+  else fail("pathExists wrong result for existing file", exists);
+  const missing = JSON.parse(await pathExists({ path: "./output/_selfcheck/nope.txt" }));
+  if (missing.exists === false) ok("pathExists detects missing file");
+  else fail("pathExists wrong result for missing file", missing);
+} catch (e) {
+  fail("pathExists threw", e);
+}
+
+try {
+  await writeFiles({
+    files: [
+      { path: "./output/_selfcheck/a.txt", content: "AAA" },
+      { path: "./output/_selfcheck/b.txt", content: "BBB" },
+    ],
+  });
+  const a = await readFile({ path: "./output/_selfcheck/a.txt" });
+  const b = await readFile({ path: "./output/_selfcheck/b.txt" });
+  if (a === "AAA" && b === "BBB") ok("writeFiles batch wrote both files");
+  else fail("writeFiles content mismatch", `a=${a} b=${b}`);
+} catch (e) {
+  fail("writeFiles threw", e);
+}
+
+try {
+  await writeFile({ path: "../../etc/evil.txt", content: "x" });
+  fail("workspace escape was NOT rejected (security regression)");
+} catch (e) {
+  if (/escapes the workspace/.test(e.message)) ok("workspace escape correctly rejected");
+  else fail("workspace escape threw wrong error", e);
 }
 
 try {
