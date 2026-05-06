@@ -1,8 +1,7 @@
 node_modules/
 .env
 .env.local
-output/_*
-output/**/*.log
+output/
 *.log
 .DS_Store
 .vscode/

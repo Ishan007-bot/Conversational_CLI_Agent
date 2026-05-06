@@ -35,59 +35,77 @@ const tool_map = {
 
 const MAX_ITERATIONS = 80;
 
-function buildClientConfig() {
-  const provider = (process.env.LLM_PROVIDER || "groq").toLowerCase();
+function collectKeys(singleVar, multiVar) {
+  const single = process.env[singleVar]?.trim();
+  const multi = (process.env[multiVar] || "")
+    .split(",")
+    .map((k) => k.trim())
+    .filter(Boolean);
+  return [...new Set([single, ...multi].filter(Boolean))];
+}
+
+function buildOneProvider(provider) {
   if (provider === "groq") {
-    const single = process.env.GROQ_API_KEY?.trim();
-    const multi = (process.env.GROQ_API_KEYS || "")
-      .split(",")
-      .map((k) => k.trim())
-      .filter(Boolean);
-    const keys = [...new Set([single, ...multi].filter(Boolean))];
-    if (keys.length === 0) {
-      throw new Error(
-        "No Groq API key configured. Set GROQ_API_KEY (or GROQ_API_KEYS) in .env. " +
-          "Get a free key at https://console.groq.com/keys"
-      );
-    }
+    const keys = collectKeys("GROQ_API_KEY", "GROQ_API_KEYS");
+    if (keys.length === 0) return null;
     return {
+      provider: "groq",
       keys,
       model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile",
-      provider: "groq",
       baseURL: "https://api.groq.com/openai/v1",
     };
   }
-  if (provider === "openai") {
-    const apiKey = process.env.OPENAI_API_KEY?.trim();
-    if (!apiKey) {
-      throw new Error(
-        "OPENAI_API_KEY is not set. Copy .env.example to .env and fill it in."
-      );
-    }
+  if (provider === "gemini") {
+    const keys = collectKeys("GEMINI_API_KEY", "GEMINI_API_KEYS");
+    if (keys.length === 0) return null;
     return {
-      keys: [apiKey],
-      model: process.env.OPENAI_MODEL || "gpt-4o-mini",
-      provider: "openai",
-      baseURL: undefined,
+      provider: "gemini",
+      keys,
+      model: process.env.GEMINI_MODEL || "gemini-2.0-flash",
+      baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
     };
   }
   if (provider === "openrouter") {
-    const apiKey = process.env.OPENROUTER_API_KEY?.trim();
-    if (!apiKey) {
-      throw new Error(
-        "OPENROUTER_API_KEY is not set. Get a free key at https://openrouter.ai/keys"
-      );
-    }
+    const keys = collectKeys("OPENROUTER_API_KEY", "OPENROUTER_API_KEYS");
+    if (keys.length === 0) return null;
     return {
-      keys: [apiKey],
-      model: process.env.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-instruct:free",
       provider: "openrouter",
+      keys,
+      model:
+        process.env.OPENROUTER_MODEL ||
+        "meta-llama/llama-3.3-70b-instruct:free",
       baseURL: "https://openrouter.ai/api/v1",
     };
   }
-  throw new Error(
-    `Unknown LLM_PROVIDER="${provider}". Use "groq", "openai", or "openrouter".`
-  );
+  if (provider === "openai") {
+    const keys = collectKeys("OPENAI_API_KEY", "OPENAI_API_KEYS");
+    if (keys.length === 0) return null;
+    return {
+      provider: "openai",
+      keys,
+      model: process.env.OPENAI_MODEL || "gpt-4o-mini",
+      baseURL: undefined,
+    };
+  }
+  return null;
+}
+
+function buildProviders() {
+  const primary = (process.env.LLM_PROVIDER || "groq").toLowerCase();
+  const known = ["groq", "gemini", "openrouter", "openai"];
+  if (!known.includes(primary)) {
+    throw new Error(
+      `Unknown LLM_PROVIDER="${primary}". Use "groq", "gemini", "openrouter", or "openai".`
+    );
+  }
+  const order = [primary, ...known.filter((p) => p !== primary)];
+  const configured = order.map(buildOneProvider).filter(Boolean);
+  if (configured.length === 0) {
+    throw new Error(
+      `No API keys configured. Set ${primary.toUpperCase()}_API_KEY in .env (or another provider's key).`
+    );
+  }
+  return configured;
 }
 
 function parseWaitSeconds(msg, fallback) {
@@ -136,15 +154,57 @@ function printStep(parsed) {
 }
 
 export async function runAgent(userMessage, history = []) {
-  const { keys, model, provider, baseURL } = buildClientConfig();
-  let keyIdx = 0;
-  const exhausted = new Set();
-  const makeClient = () =>
-    new OpenAI({ apiKey: keys[keyIdx], ...(baseURL ? { baseURL } : {}) });
+  const providers = buildProviders();
+  let pIdx = 0;
+  let kIdx = 0;
+  const exhausted = new Set(); // "pIdx:kIdx" — slot is dead for this run (daily quota)
+
+  const slotKey = () => `${pIdx}:${kIdx}`;
+  const totalSlots = () => providers.reduce((n, p) => n + p.keys.length, 0);
+  const slotLabel = () =>
+    `${providers[pIdx].provider}#${kIdx + 1}/${providers[pIdx].keys.length}`;
+
+  const makeClient = () => {
+    const p = providers[pIdx];
+    return new OpenAI({
+      apiKey: p.keys[kIdx],
+      ...(p.baseURL ? { baseURL: p.baseURL } : {}),
+    });
+  };
+
+  // Walk to the next non-exhausted slot. Returns true if we moved, false if every slot is exhausted.
+  const advanceSlot = () => {
+    const total = totalSlots();
+    let np = pIdx;
+    let nk = kIdx;
+    for (let step = 0; step < total; step++) {
+      nk++;
+      if (nk >= providers[np].keys.length) {
+        nk = 0;
+        np = (np + 1) % providers.length;
+      }
+      if (!exhausted.has(`${np}:${nk}`)) {
+        pIdx = np;
+        kIdx = nk;
+        return true;
+      }
+    }
+    return false;
+  };
+
   let client = makeClient();
   if (history.length === 0) {
-    const keyInfo = keys.length > 1 ? `, ${keys.length} keys` : "";
-    console.log(chalk.gray(`(provider: ${provider}, model: ${model}${keyInfo})`));
+    const summary = providers
+      .map(
+        (p) =>
+          `${p.provider}(${p.keys.length} key${p.keys.length > 1 ? "s" : ""})`
+      )
+      .join(" → ");
+    console.log(
+      chalk.gray(
+        `(primary: ${providers[0].provider}, model: ${providers[0].model}; fallback chain: ${summary})`
+      )
+    );
   }
 
   const messages =
@@ -161,7 +221,7 @@ export async function runAgent(userMessage, history = []) {
     while (true) {
       try {
         response = await client.chat.completions.create({
-          model,
+          model: providers[pIdx].model,
           messages,
           response_format: { type: "json_object" },
           temperature: 0.2,
@@ -170,7 +230,11 @@ export async function runAgent(userMessage, history = []) {
       } catch (err) {
         const status = err?.status || err?.response?.status;
         const msg = err?.message || String(err);
-        const isTpd = /tokens per day/i.test(msg);
+        const isDailyExhaust =
+          /tokens per day/i.test(msg) ||
+          /requests per day/i.test(msg) ||
+          /quota.*exceed/i.test(msg) ||
+          /daily.*limit/i.test(msg);
         const isRateLimit =
           status === 429 ||
           status === 413 ||
@@ -178,16 +242,36 @@ export async function runAgent(userMessage, history = []) {
           /tokens per (minute|hour|day)/i.test(msg) ||
           /Request too large/i.test(msg);
 
-        if (isTpd) {
-          exhausted.add(keyIdx);
-          const nextIdx = keys.findIndex((_, idx) => !exhausted.has(idx));
-          if (nextIdx >= 0 && nextIdx !== keyIdx) {
+        // Slot is dead for the rest of this run — mark exhausted and try to advance.
+        if (isDailyExhaust) {
+          exhausted.add(slotKey());
+          const prev = slotLabel();
+          if (advanceSlot()) {
             console.log(
               chalk.yellow(
-                `[KEYROTATE] daily quota exhausted on key ${keyIdx + 1}/${keys.length}, switching to key ${nextIdx + 1}/${keys.length}`
+                `[ROTATE] daily quota on ${prev} — switching to ${slotLabel()}`
               )
             );
-            keyIdx = nextIdx;
+            client = makeClient();
+            attempt = 0;
+            continue;
+          }
+          console.log(
+            chalk.red(`[API ERROR] all configured keys exhausted: ${msg}`)
+          );
+          return { history: messages, output: null, error: msg };
+        }
+
+        // Per-minute/short rate limit — prefer to switch sideways immediately rather than wait,
+        // if any other slot is available.
+        if (isRateLimit && totalSlots() - exhausted.size > 1) {
+          const prev = slotLabel();
+          if (advanceSlot()) {
+            console.log(
+              chalk.yellow(
+                `[ROTATE] rate-limited on ${prev} (${status || "?"}) — switching to ${slotLabel()}`
+              )
+            );
             client = makeClient();
             attempt = 0;
             continue;
@@ -202,7 +286,7 @@ export async function runAgent(userMessage, history = []) {
         const waitSec = Math.min(75, parseWaitSeconds(msg, 35 * (attempt + 1)));
         console.log(
           chalk.yellow(
-            `[RATELIMIT] ${status || "?"} — waiting ${waitSec}s (attempt ${attempt + 1}/3, key ${keyIdx + 1}/${keys.length})`
+            `[RATELIMIT] ${status || "?"} on ${slotLabel()} — waiting ${waitSec}s (attempt ${attempt + 1}/3)`
           )
         );
         await new Promise((r) => setTimeout(r, waitSec * 1000));

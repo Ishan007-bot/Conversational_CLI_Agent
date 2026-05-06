@@ -86,29 +86,41 @@ npm install
 cp .env.example .env
 ```
 
-Then open `.env` and configure **one** provider:
+Set `LLM_PROVIDER` to your preferred primary, then add a key for it. You can also fill in keys for any other provider — they become **automatic fallbacks** when the primary's daily quota is exhausted, so a single `.env` with two or three providers' keys never hits a hard wall.
 
 | Provider | Cost | Default model | Where to get a key |
 |---|---|---|---|
-| **Groq** (default) | Free, 100K tokens/day per model | `llama-3.3-70b-versatile` | https://console.groq.com/keys |
-| **OpenAI** | Paid, ~$0.15 per 1M input tokens | `gpt-4o-mini` | https://platform.openai.com/api-keys |
+| **Groq** (default primary) | Free, 100K tokens/day per model | `llama-3.3-70b-versatile` | https://console.groq.com/keys |
+| **Gemini** | Free, generous daily quota | `gemini-2.0-flash` | https://aistudio.google.com/app/apikey |
 | **OpenRouter** | Free models available | `meta-llama/llama-3.3-70b-instruct:free` | https://openrouter.ai/keys |
+| **OpenAI** | Paid, ~$0.15 per 1M input tokens | `gpt-4o-mini` | https://platform.openai.com/api-keys |
 
-The agent uses the OpenAI SDK against each provider's chat-completions endpoint, so the rest of the code is provider-agnostic. Switching is a single env-var change.
+The agent uses the OpenAI SDK against each provider's chat-completions endpoint, so the rest of the code is provider-agnostic. Switching the primary is a single env-var change.
 
-### Multi-key rotation (Groq free tier)
+### Multi-key rotation and cross-provider fallback
 
-Each Groq account has its own 100K-tokens-per-day budget. To extend that, set `GROQ_API_KEYS` to a comma-separated list:
+Every provider supports a key pool. Set `<PROVIDER>_API_KEY` for a single key, `<PROVIDER>_API_KEYS` for a comma-separated list, or both — they merge and dedupe.
 
 ```
-GROQ_API_KEYS=gsk_first,gsk_second,gsk_third
+GROQ_API_KEYS=gsk_first,gsk_second
+GEMINI_API_KEY=AIza_personal
+GEMINI_API_KEYS=AIza_workspace_alt
 ```
 
-When the agent hits a `tokens per day` error on the active key, it marks that key exhausted and rotates to the next one in the pool. The same request retries on the new key — no conversation state is lost. You'll see a `[KEYROTATE 1→2/3]` line in the console.
+When the active key fails:
 
-Per-minute rate limits still wait-and-retry on the same key (since they reset within seconds, rotating doesn't help). The agent parses `try again in 12.3s` hints from error bodies and uses them as the wait time, capped at 75 seconds.
+- **Daily quota** errors (`tokens per day`, `quota exceeded`, `requests per day`) — the slot is marked dead for the rest of the run, and the agent rotates to the next key in the same provider's pool, then to the next provider's pool, in primary-first order.
+- **Per-minute** rate limits — if any other configured slot exists, the agent rotates sideways immediately rather than waiting. If no other slot is free, it parses `try again in 12.3s` hints from the error and waits, capped at 75 seconds.
 
-`GROQ_API_KEY` and `GROQ_API_KEYS` are merged and deduped, so you can set either or both.
+You'll see `[ROTATE]` lines in the console showing the switch:
+
+```
+[ROTATE] daily quota on groq#1/2 — switching to groq#2/2
+[ROTATE] daily quota on groq#2/2 — switching to gemini#1/1
+[ROTATE] rate-limited on gemini#1/1 (429) — switching to openrouter#1/1
+```
+
+This makes the agent robust to free-tier quirks without the user having to babysit `.env`.
 
 ## Running the agent
 
@@ -150,17 +162,17 @@ npm run selfcheck
 
 The selfcheck covers writeFile/readFile roundtrips, `pathExists` true/false cases, `writeFiles` batch, workspace-escape rejection, `executeCommand`, `fetchWebpage` against example.com, and the validator against deliberately-broken and clean HTML/CSS/JS fixtures.
 
-## Generated example
+## Generated output
 
-A finished Scaler clone produced by the agent lives in [`output/scaler-clone/`](output/scaler-clone/). It includes:
+The agent writes generated sites into a local `output/` directory at runtime. That directory is git-ignored, so the repo stays small — every clone session starts fresh on your machine.
 
-- **Sticky white header** — Scaler wordmark, primary nav (Programs / Companies / Events / Blog), Login link, Apply Now CTA, hamburger button for mobile, scroll-shadow class added by JS
-- **Dark gradient hero** — eyebrow chip, the real `Become the Professional Built for the Next Decade in AI.` headline pulled from scaler.com via `fetchWebpage`, lead paragraph, primary + ghost CTAs, trust line, glass-morphism card on the right with traffic-light dots and a play button
-- **Four-column dark footer** — Company / Programs / Resources / Reach Out, brand row with tagline, copyright, four inline-SVG social icons in pill backgrounds
-- **Responsive** — desktop two-column → tablet stack at 768px → footer single-column at 480px
-- **JS interactions** — header scroll-shadow, hamburger toggle, smooth in-page anchor scroll, all wrapped in an IIFE with null guards
+A typical Scaler clone run produces three files inside `output/scaler-clone/`:
 
-The validator reports `ok: true` on this output. To regenerate from scratch, delete the folder and re-run `npm start` with the Scaler clone prompt.
+- **`index.html`** — semantic markup with `<header>`, `<nav>`, `<main>`, `<section class="hero">`, `<footer>`, real Scaler hero copy from `fetchWebpage`, four-column footer link grid, inline-SVG social icons
+- **`style.css`** — `:root` design-token palette, sticky white header with scroll-shadow class, dark gradient hero with two-column layout collapsing at 768px, glass-morphism card on the right, four-column footer collapsing to two then one column on smaller breakpoints
+- **`script.js`** — IIFE wrapping a `DOMContentLoaded` handler that toggles `.scrolled` on the header, opens/closes the mobile hamburger, and smooth-scrolls in-page anchors with null guards
+
+The validator should report `ok: true` once the agent finishes. To regenerate, delete the folder and re-run `npm start` with the Scaler clone prompt.
 
 ## Project layout
 
@@ -183,26 +195,23 @@ The validator reports `ok: true` on this output. To regenerate from scratch, del
 │       ├── shell.js          executeCommand
 │       ├── web.js            fetchWebpage (with structured extract), getTheWeatherOfCity, getGithubDetailsAboutUser
 │       └── validate.js       validateGeneratedFiles — static analysis of generated sites
-└── output/
-    └── scaler-clone/         Example agent output (committed for reference)
-        ├── index.html
-        ├── style.css
-        └── script.js
+└── output/                   Runtime working directory — gitignored, populated by the agent
 ```
 
 ## Configuration reference
 
 | Env var | Default | Notes |
 |---|---|---|
-| `LLM_PROVIDER` | `groq` | One of `groq`, `openai`, `openrouter` |
-| `GROQ_API_KEY` | — | Single Groq key |
-| `GROQ_API_KEYS` | — | Comma-separated pool of Groq keys for rotation |
-| `GROQ_MODEL` | `llama-3.3-70b-versatile` | Any Groq chat model with JSON mode |
-| `OPENAI_API_KEY` | — | Required when `LLM_PROVIDER=openai` |
-| `OPENAI_MODEL` | `gpt-4o-mini` | Any chat-completions OpenAI model |
-| `OPENROUTER_API_KEY` | — | Required when `LLM_PROVIDER=openrouter` |
-| `OPENROUTER_MODEL` | `meta-llama/llama-3.3-70b-instruct:free` | Any OpenRouter slug |
-| `AGENT_WORKSPACE_ROOT` | `process.cwd()` | Path-safety boundary for file-system tools |
+| `LLM_PROVIDER` | `groq` | Primary provider — one of `groq`, `gemini`, `openrouter`, `openai`. Other providers with keys configured become automatic fallbacks. |
+| `GROQ_API_KEY` / `GROQ_API_KEYS` | — | Single key, or comma-separated pool. Both are merged. |
+| `GROQ_MODEL` | `llama-3.3-70b-versatile` | Any Groq chat model with JSON mode. |
+| `GEMINI_API_KEY` / `GEMINI_API_KEYS` | — | Free at https://aistudio.google.com/app/apikey. |
+| `GEMINI_MODEL` | `gemini-2.0-flash` | Try `gemini-2.5-flash` if your account has zero quota on 2.0. |
+| `OPENROUTER_API_KEY` / `OPENROUTER_API_KEYS` | — | OpenRouter key(s). |
+| `OPENROUTER_MODEL` | `meta-llama/llama-3.3-70b-instruct:free` | Any OpenRouter slug. |
+| `OPENAI_API_KEY` / `OPENAI_API_KEYS` | — | OpenAI key(s) — used as a paid fallback. |
+| `OPENAI_MODEL` | `gpt-4o-mini` | Any chat-completions OpenAI model. |
+| `AGENT_WORKSPACE_ROOT` | `process.cwd()` | Path-safety boundary for file-system tools. |
 
 ## Assignment requirement mapping
 
@@ -220,9 +229,11 @@ The validator reports `ok: true` on this output. To regenerate from scratch, del
 
 ## Troubleshooting
 
-**`OPENAI_API_KEY is not set` / `GROQ_API_KEY is not set`** — copy `.env.example` to `.env` and fill in the key for whichever provider you set in `LLM_PROVIDER`.
+**`No API keys configured`** — copy `.env.example` to `.env` and fill in at least one provider's key. The agent will pick it up automatically.
 
-**`Rate limit reached … tokens per day`** — Groq's free tier exhausted for today. Either wait for the per-day reset, add a second key via `GROQ_API_KEYS`, or switch provider with `LLM_PROVIDER=openai` or `LLM_PROVIDER=openrouter`.
+**`Rate limit reached … tokens per day`** — the active provider's daily budget is gone. The agent will print a `[ROTATE]` line and switch to the next configured provider automatically. If all configured providers are exhausted, add another provider's key in `.env` (Groq, Gemini, and OpenRouter all have free tiers) and re-run.
+
+**`Quota exceeded for metric: …generate_content_free_tier_requests, limit: 0, model: gemini-2.0-flash`** — your Google account has zero free quota on that specific Gemini model. Switch `GEMINI_MODEL` to `gemini-2.5-flash` (different quota pool) and re-run.
 
 **`429 Provider returned error … temporarily rate-limited upstream`** (OpenRouter) — the upstream provider for that free model is congested. Try a different free model by setting `OPENROUTER_MODEL` to another slug (the model list at https://openrouter.ai/models?fmt=table&supported_parameters=response_format shows which support JSON mode).
 
